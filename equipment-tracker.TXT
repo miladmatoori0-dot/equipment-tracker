@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#2c3e50">
+<title>ثبت تجهیزات افراد</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
+  body { margin: 0; background: #f0f2f5; color: #222; padding-bottom: 30px; }
+  header { background: #2c3e50; color: #fff; padding: 14px; text-align: center;
+           font-size: 17px; position: sticky; top: 0; z-index: 10; }
+  .container { max-width: 600px; margin: 0 auto; padding: 12px; }
+  .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .card h3 { margin: 0 0 10px; font-size: 15px; color: #2c3e50;
+             border-bottom: 2px solid #ecf0f1; padding-bottom: 6px; }
+  label { display: block; font-size: 13px; color: #555; margin: 8px 0 3px; }
+  input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;
+          font-size: 14px; background: #fafafa; }
+  input:focus { outline: none; border-color: #3498db; background: #fff; }
+  .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 8px;
+         font-size: 15px; font-weight: bold; margin-top: 10px; cursor: pointer; }
+  .btn-save { background: #27ae60; color: #fff; }
+  .btn-search { background: #3498db; color: #fff; }
+  .btn-home { background: #95a5a6; color: #fff; }
+  .btn-backup { background: #8e44ad; color: #fff; }
+  .btn-restore { background: #d35400; color: #fff; }
+  .person-name { background: #fff8e1; border: 2px solid #f39c12; }
+  .result-item { background: #fff; border-right: 4px solid #27ae60;
+                 padding: 10px; margin-bottom: 8px; border-radius: 6px; }
+  .result-item b { color: #2c3e50; }
+  .empty { text-align: center; color: #999; padding: 20px; }
+  .saved-list { background: #fff; border-radius: 10px; padding: 10px; }
+  .saved-person { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; }
+  .saved-person:last-child { border-bottom: none; }
+  .saved-person:hover { background: #f8f9fa; }
+  .toast { position: fixed; bottom: 20px; right: 50%; transform: translateX(50%);
+           background: #27ae60; color: #fff; padding: 12px 20px; border-radius: 8px;
+           opacity: 0; transition: opacity 0.3s; z-index: 100; font-size: 14px; }
+  .toast.show { opacity: 1; }
+  .hidden { display: none; }
+  .footer-btns { display: flex; gap: 8px; margin-top: 20px; }
+  .footer-btns .btn { margin-top: 0; font-size: 13px; padding: 10px; }
+</style>
+</head>
+<body>
+
+<header>📋 ثبت تجهیزات افراد</header>
+
+<div class="container" id="mainPage">
+  <div class="card">
+    <label>نام فرد *</label>
+    <input type="text" id="personName" class="person-name" placeholder="مثلاً: علی رضایی">
+  </div>
+
+  <div id="equipmentForms"></div>
+
+  <button class="btn btn-save" onclick="savePerson()">💾 ذخیره</button>
+
+  <div class="footer-btns">
+    <button class="btn btn-search" onclick="showSearch()">🔍 جستجو</button>
+    <button class="btn btn-home" onclick="showSavedList()">📂 لیست افراد</button>
+  </div>
+
+  <div class="footer-btns">
+    <button class="btn btn-backup" onclick="backup()">⬇️ پشتیبان‌گیری</button>
+    <button class="btn btn-restore" onclick="document.getElementById('restoreFile').click()">⬆️ بازیابی</button>
+  </div>
+  <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restore(event)">
+</div>
+
+<div class="container hidden" id="searchPage">
+  <div class="card">
+    <label>جستجوی نام فرد</label>
+    <input type="text" id="searchInput" oninput="doSearch()" placeholder="نام را تایپ کنید...">
+  </div>
+  <div id="searchResults"></div>
+  <button class="btn btn-home" onclick="goHome()">🏠 بازگشت</button>
+</div>
+
+<div class="container hidden" id="listPage">
+  <h2 style="text-align:center; color:#2c3e50;">افراد ثبت‌شده</h2>
+  <div id="savedList" class="saved-list"></div>
+  <button class="btn btn-home" onclick="goHome()">🏠 بازگشت</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const EQUIPMENT = [
+  { key: 'case',      label: 'کیس' },
+  { key: 'monitor',   label: 'مانیتور' },
+  { key: 'printer',   label: 'پرینتر' },
+  { key: 'scanner',   label: 'اسکنر' },
+  { key: 'keyboard',  label: 'کیبورد' },
+  { key: 'mouse',     label: 'ماوس' },
+  { key: 'speaker',   label: 'اسپیکر' },
+  { key: 'headphone', label: 'هدفون' },
+  { key: 'other',     label: 'سایر', hasName: true }
+];
+
+const formsDiv = document.getElementById('equipmentForms');
+EQUIPMENT.forEach(eq => {
+  let html = `<div class="card"><h3>${eq.label}</h3>`;
+  if (eq.hasName) {
+    html += `<label>نام تجهیز</label><input type="text" id="other_name" placeholder="مثلاً وبکم">`;
+  }
+  html += `
+    <label>شرکت سازنده</label>
+    <input type="text" id="${eq.key}_brand" placeholder="مثلاً Dell">
+    <label>مدل دستگاه</label>
+    <input type="text" id="${eq.key}_model" placeholder="مثلاً OptiPlex 3080">
+    <label>شماره اموال</label>
+    <input type="text" id="${eq.key}_asset">
+    <label>شماره سریال</label>
+    <input type="text" id="${eq.key}_serial">
+  </div>`;
+  formsDiv.innerHTML += html;
+});
+
+function getDB() {
+  return JSON.parse(localStorage.getItem('equipmentDB') || '{}');
+}
+function setDB(db) {
+  localStorage.setItem('equipmentDB', JSON.stringify(db));
+}
+
+function savePerson() {
+  const name = document.getElementById('personName').value.trim();
+  if (!name) { showToast('نام فرد را وارد کنید', '#e74c3c'); return; }
+
+  const data = {};
+  EQUIPMENT.forEach(eq => {
+    const item = {
+      brand:  document.getElementById(eq.key + '_brand').value.trim(),
+      model:  document.getElementById(eq.key + '_model').value.trim(),
+      asset:  document.getElementById(eq.key + '_asset').value.trim(),
+      serial: document.getElementById(eq.key + '_serial').value.trim()
+    };
+    if (eq.hasName) item.name = document.getElementById('other_name').value.trim();
+    if (item.brand || item.model || item.asset || item.serial || (item.name && item.name !== '')) {
+      data[eq.key] = item;
+    }
+  });
+
+  const db = getDB();
+  const wasExisting = db[name] !== undefined;
+  db[name] = data;
+  setDB(db);
+  showToast(wasExisting ? '✅ ویرایش شد: ' + name : '✅ ذخیره شد: ' + name);
+  clearForm();
+}
+
+function clearForm() {
+  document.getElementById('personName').value = '';
+  EQUIPMENT.forEach(eq => {
+    ['_brand', '_model', '_asset', '_serial'].forEach(s => {
+      document.getElementById(eq.key + s).value = '';
+    });
+    if (eq.hasName) document.getElementById('other_name').value = '';
+  });
+}
+
+function showToast(msg, color = '#27ae60') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = color;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function showSearch() {
+  document.getElementById('mainPage').classList.add('hidden');
+  document.getElementById('listPage').classList.add('hidden');
+  document.getElementById('searchPage').classList.remove('hidden');
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = '';
+}
+
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  const results = document.getElementById('searchResults');
+  if (!q) { results.innerHTML = ''; return; }
+
+  const db = getDB();
+  const matches = Object.keys(db).filter(n => n.includes(q));
+
+  if (matches.length === 0) {
+    results.innerHTML = '<div class="empty">فردی یافت نشد</div>';
+    return;
+  }
+
+  results.innerHTML = matches.map(name => {
+    let html = `<div class="result-item"><b>👤 ${name}</b><br>`;
+    EQUIPMENT.forEach(eq => {
+      const item = db[name][eq.key];
+      if (!item) return;
+      const title = eq.hasName && item.name ? item.name : eq.label;
+      const parts = [];
+      if (item.brand)  parts.push('برند: ' + item.brand);
+      if (item.model)  parts.push('مدل: ' + item.model);
+      if (item.asset)  parts.push('اموال: ' + item.asset);
+      if (item.serial) parts.push('سریال: ' + item.serial);
+      if (parts.length) html += `<div style="margin:6px 0; font-size:13px;">🔹 <b>${title}</b><br>${parts.join(' | ')}</div>`;
+    });
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+function showSavedList() {
+  document.getElementById('mainPage').classList.add('hidden');
+  document.getElementById('searchPage').classList.add('hidden');
+  document.getElementById('listPage').classList.remove('hidden');
+
+  const db = getDB();
+  const names = Object.keys(db).sort();
+  const container = document.getElementById('savedList');
+
+  if (names.length === 0) {
+    container.innerHTML = '<div class="empty">هنوز فردی ثبت نشده</div>';
+    return;
+  }
+
+  container.innerHTML = names.map(n =>
+    `<div class="saved-person" onclick="viewPerson('${n.replace(/'/g, "\\'")}')">👤 ${n}</div>`
+  ).join('');
+}
+
+function viewPerson(name) {
+  showSearch();
+  document.getElementById('searchInput').value = name;
+  doSearch();
+}
+
+function goHome() {
+  document.getElementById('searchPage').classList.add('hidden');
+  document.getElementById('listPage').classList.add('hidden');
+  document.getElementById('mainPage').classList.remove('hidden');
+}
+
+function backup() {
+  const db = getDB();
+  if (Object.keys(db).length === 0) {
+    showToast('داده‌ای برای پشتیبان‌گیری نیست', '#e74c3c');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `equipment-backup-${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ فایل پشتیبان دانلود شد');
+}
+
+function restore(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (typeof data !== 'object' || Array.isArray(data)) throw new Error('bad');
+      if (!confirm('همه داده‌های فعلی با فایل پشتیبان جایگزین می‌شوند. مطمئنی؟')) return;
+      setDB(data);
+      showToast('✅ بازیابی شد: ' + Object.keys(data).length + ' نفر');
+      goHome();
+    } catch (err) {
+      showToast('فایل نامعتبر است', '#e74c3c');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
